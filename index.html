@@ -3003,6 +3003,101 @@ arrel.IonElectro = Object.freeze({
 })(globalThis);
 
 </script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   ajust-sequencial.js — Procediment: combustió orgànica, ajust seqüencial C ➔ H ➔ O
+   ───────────────────────────────────────────────────────────────────
+   Vuit problemes fixos: CₓHᵧO_z + O₂ → CO₂ + H₂O. Adreça: ajust-sequencial.html?p=etanol
+   Passos: C (coeficient del CO₂) → H (coeficient de l'H₂O) → O (coeficient de l'O₂,
+   pot ser fracció) → multiplicar per eixugar la fracció. Fila 0: equació; 1-3: un
+   raonament per element; 4: la fracció. Claus: a (compost), b (O₂), c (CO₂), d (H₂O).
+   ═══════════════════════════════════════════════════════════════════ */
+(function (arrel) {
+'use strict';
+const F = arrel.Formules, Dd = arrel.Dades;
+const {clau: K, rel: R, op: O} = F;
+
+const compon = f => { const a = {C: 0, H: 0, O: 0}; for (const [, e, n] of f.matchAll(/([A-Z])(\d*)/g)) a[e] += n ? +n : 1; return a; };
+const PROBLEMES = Object.freeze([
+  ['etan', 'Combustió de l\'età', 'C2H6'], ['propan', 'Combustió del propà', 'C3H8'], ['etanol', 'Combustió de l\'etanol', 'C2H6O'],
+  ['acetic', 'Combustió de l\'àcid acètic', 'C2H4O2'], ['eti', 'Combustió de l\'etí (acetilè)', 'C2H2'],
+  ['benze', 'Combustió del benzè', 'C6H6'], ['glucosa', 'Combustió de la glucosa', 'C6H12O6'], ['butan', 'Combustió del butà', 'C4H10'],
+].map(([id, nom, f]) => Object.freeze({id, nom, f, a: Object.freeze(compon(f))})));
+const FIXOS = Dd.problemesFixos(PROBLEMES);
+const {perId} = FIXOS;
+
+/* Fraccions [n, d] reduïdes. */
+const mcd = (a, b) => (b ? mcd(b, a % b) : a);
+const fr = (n, d = 1) => { const g = mcd(Math.abs(n), d) || 1; return [n / g, d / g]; };
+const texFr = ([n, d]) => (d === 1 ? String(n) : `\\frac{${n}}{${d}}`);
+const texF = f => `\\mathrm{${f.replace(/(\d+)/g, '_{$1}')}}`;
+const terme = (c, f) => (c[0] === 1 && c[1] === 1 ? '' : `${texFr(c)}\\,`) + texF(f);
+
+/** Resol el problema i retorna les coeficients finals (enters) i els intermedis. */
+function resol(p) {
+  const {C, H, O: o} = p.a;
+  const co2 = fr(C), h2o = fr(H, 2);
+  const oRes = 2 * C + H / 2;                     // àtoms d'O a la dreta
+  const o2 = fr(oRes - o, 2);                     // (O de la dreta − O del compost) / 2
+  const d = o2[1];
+  const fins = {a: d, b: o2[0] * d / o2[1], c: C * d, d: H / 2 * d};
+  return {co2, h2o, o2, d, fins, oRes};
+}
+
+function passos(v) {
+  const p = perId(v.p), s = resol(p), g = F.guio(5);
+  const un = [1, 1];
+  const c = {a: un, b: un, c: un, d: un}, m = {};
+  const fila = () => K('a', terme(c.a, p.f), m.a || '') + O('p1', '+') + K('b', terme(c.b, 'O2'), m.b || '') + R('ar', '\\rightarrow')
+    + K('c', terme(c.c, 'CO2'), m.c || '') + O('p2', '+') + K('d', terme(c.d, 'H2O'), m.d || '');
+  const pas = (text, opcions) => { g.files[0] = fila(); g.afegeix(text, opcions); for (const k of Object.keys(m)) delete m[k]; };
+  const tex = x => `$${x}$`;
+
+  pas('Reacció de combustió sense ajustar: el compost orgànic crema amb l\'oxigen i dóna $\\mathrm{CO_2}$ i $\\mathrm{H_2O}$. Ajustem en ordre: primer el carboni, després l\'hidrogen i al final l\'oxigen.');
+
+  c.c = s.co2; m.c = 'mes';
+  g.files[1] = F.filaText(`Carboni: hi ha ${tex(p.a.C)} àtoms de $\\mathrm{C}$ al compost, i cada $\\mathrm{CO_2}$ en té ${tex(1)}: posem ${tex(p.a.C)} $\\mathrm{CO_2}$.`);
+  pas('Primer el carboni: tants $\\mathrm{CO_2}$ com àtoms de $\\mathrm{C}$ té el compost.');
+
+  c.d = s.h2o; m.d = 'mes';
+  g.files[2] = F.filaText(`Hidrogen: hi ha ${tex(p.a.H)} àtoms de $\\mathrm{H}$ al compost, i cada $\\mathrm{H_2O}$ en té ${tex(2)}: posem ${tex(texFr(s.h2o))} $\\mathrm{H_2O}$.`);
+  pas('Ara l\'hidrogen: cada $\\mathrm{H_2O}$ s\'endú $2$ àtoms de $\\mathrm{H}$.');
+
+  c.b = s.o2; m.b = 'mes';
+  const aporta = p.a.O ? ` El compost ja en aporta ${tex(p.a.O)}, així que en falten ${tex(s.oRes - p.a.O)}.` : '';
+  g.files[3] = F.filaText(`Oxigen: a la dreta hi ha ${tex(`${2 * p.a.C} + ${p.a.H / 2} = ${s.oRes}`)} àtoms de $\\mathrm{O}$.${aporta} Cada $\\mathrm{O_2}$ en dóna ${tex(2)}: posem ${tex(texFr(s.o2))} $\\mathrm{O_2}$.`);
+  if (s.d === 1) g.classes[0] = 'final';
+  pas(s.d === 1 ? 'Finalment l\'oxigen, que es calcula amb el que ja hi ha a la dreta. Equació ajustada.'
+    : 'Finalment l\'oxigen, que es calcula amb el que ja hi ha a la dreta. Surt una fracció.');
+
+  if (s.d !== 1) {
+    c.a = [s.d, 1]; c.b = [s.fins.b, 1]; c.c = [s.fins.c, 1]; c.d = [s.fins.d, 1];
+    g.files[4] = F.filaText(`Hi ha una fracció amb denominador ${tex(s.d)}: multipliquem tots els coeficients per ${tex(s.d)}.`);
+    g.classes[0] = 'final';
+    pas('Per eliminar la fracció, multiplica tots els coeficients pel denominador. Equació ajustada.');
+  }
+  return g.passos;
+}
+
+const texEq = p => `${texF(p.f)} + \\mathrm{O_2} \\rightarrow \\mathrm{CO_2} + \\mathrm{H_2O}`;
+
+arrel.AjustSequencial = Object.freeze({
+  titol: 'Química orgànica: ajust seqüencial (C ➔ H ➔ O)',
+  categoria: 'quimica', cami: false, torna: false,
+  files: 5,
+  perDefecte: FIXOS.perDefecte, exemples: FIXOS.exemples,
+  titolEditor: 'Tria un compost', titolExemples: 'Combustions:',
+  notaEditor: 'Sempre en el mateix ordre: carboni (CO₂), hidrogen (H₂O) i oxigen (O₂). Si surt una fracció, es multiplica tot pel denominador.',
+  editor: [],
+  problemes: PROBLEMES, resol,
+  valida: FIXOS.valida, llegeixAdreca: FIXOS.llegeixAdreca, escriuAdreca: FIXOS.escriuAdreca,
+  enunciat: v => `Ajusta, amb l'ajust seqüencial C ➔ H ➔ O, la reacció de combustió $${texEq(perId(v.p))}$.`,
+  resum: v => texEq(perId(v.p)), nomExemple: FIXOS.nomExemple,
+  passos,
+});
+})(globalThis);
+
+</script>
 <style>
 .menu-fases{max-width:760px;margin:0 auto;padding:0 16px 40px}
 .menu-fases h1{margin:0;font-size:1.05rem;font-weight:700}
@@ -3022,14 +3117,26 @@ button.fase{cursor:pointer}button.fase:hover,button.fase:focus-visible{backgroun
   <h2>Tria un mètode</h2>
   <p class="lead">Tres maneres d'ajustar una reacció, segons el tipus de reacció.</p>
   <button class="fase" id="fase1"><span class="n">1</span><span><b>Reaccions redox: el mètode de l'ió-electró</b><small>Semireaccions, electrons, medi àcid i bàsic</small></span></button>
-  <div class="fase espera" aria-disabled="true"><span class="n">2</span><span><b>Química orgànica: l'ajust seqüencial (C ➔ H ➔ O)</b><small>Primer el carboni, després l'hidrogen i finalment l'oxigen</small></span><span class="etiq">en construcció</span></div>
+  <button class="fase" id="fase2"><span class="n">2</span><span><b>Química orgànica: l'ajust seqüencial (C ➔ H ➔ O)</b><small>Primer el carboni, després l'hidrogen i finalment l'oxigen</small></span></button>
   <div class="fase espera" aria-disabled="true"><span class="n">3</span><span><b>El mètode de salvació: el mètode algebraic</b><small>Un sistema d'equacions amb els coeficients</small></span><span class="etiq">en construcció</span></div>
 </div>
 <script>
 (function () {
   const menu = document.getElementById('menu'), pr = document.getElementById('procediment');
-  const engega = () => { menu.hidden = true; pr.hidden = false; document.body.dataset.categoria = 'quimica'; window.procediment = Motor.inicia(IonElectro); };
-  if (new URLSearchParams(location.search).has('p')) engega();
-  else { document.body.dataset.categoria = 'quimica'; pr.hidden = true; menu.hidden = false; document.getElementById('fase1').addEventListener('click', engega); }
+  document.body.dataset.categoria = 'quimica';
+  const engega = proc => {
+    menu.hidden = true; pr.hidden = false;
+    window.procediment = Motor.inicia(proc);
+    const cap = pr.querySelector('.capcalera');
+    if (cap) cap.append(Object.assign(document.createElement('a'), {className: 'torna', href: location.pathname, textContent: '← Menú'}));
+  };
+  const p = new URLSearchParams(location.search).get('p');
+  if (p && AjustSequencial.problemes.some(x => x.id === p)) engega(AjustSequencial);
+  else if (p) engega(IonElectro);
+  else {
+    pr.hidden = true; menu.hidden = false;
+    document.getElementById('fase1').addEventListener('click', () => engega(IonElectro));
+    document.getElementById('fase2').addEventListener('click', () => engega(AjustSequencial));
+  }
 })();
 </script>
