@@ -3098,6 +3098,181 @@ arrel.AjustSequencial = Object.freeze({
 })(globalThis);
 
 </script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   ajust-algebraic.js — Procediment: el mètode algebraic (sistema d'equacions)
+   ───────────────────────────────────────────────────────────────────
+   Vuit problemes fixos. Adreça: ajust-algebraic.html?p=permanganat
+   Passos: incògnites a, b, c… → una equació per element → fixar una incògnita = 1 →
+   aïllar les altres (una a una; si les equacions són acoblades, per reducció) →
+   multiplicar pel m.c.m. dels denominadors → substituir.
+   Fila 0: equació; 1…5: una fila per element; 6: valors de les incògnites.
+   Claus: t0…, o0…, ar (fila 0); v + lletra (fila 6).
+   ═══════════════════════════════════════════════════════════════════ */
+(function (arrel) {
+'use strict';
+const F = arrel.Formules, Dd = arrel.Dades;
+const {clau: K, rel: R, op: O} = F;
+
+/** Àtoms d'una fórmula, amb parèntesis: Ca3(PO4)2 → {Ca: 3, P: 2, O: 8}. */
+function atoms(f) {
+  const pila = [{}], re = /([A-Z][a-z]?)(\d*)|\(|\)(\d*)/g;
+  let m;
+  while ((m = re.exec(f))) {
+    const a = pila[pila.length - 1];
+    if (m[1]) a[m[1]] = (a[m[1]] || 0) + (m[2] ? +m[2] : 1);
+    else if (m[0] === '(') pila.push({});
+    else { const t = pila.pop(), k = m[3] ? +m[3] : 1, b = pila[pila.length - 1]; for (const e in t) b[e] = (b[e] || 0) + t[e] * k; }
+  }
+  return pila[0];
+}
+const PROBLEMES = Object.freeze([
+  ['ferro', 'Oxidació del ferro', ['Fe', 'O2'], ['Fe2O3']],
+  ['propa', 'Combustió del propà', ['C3H8', 'O2'], ['CO2', 'H2O']],
+  ['alumini', 'Alumini i àcid clorhídric', ['Al', 'HCl'], ['AlCl3', 'H2']],
+  ['termita', 'Termita', ['Al', 'Fe2O3'], ['Al2O3', 'Fe']],
+  ['amoniac', 'Oxidació de l\'amoníac', ['NH3', 'O2'], ['NO', 'H2O']],
+  ['fosfat', 'Hidròxid de calci i àcid fosfòric', ['Ca(OH)2', 'H3PO4'], ['Ca3(PO4)2', 'H2O']],
+  ['cunitric', 'Coure i àcid nítric', ['Cu', 'HNO3'], ['Cu(NO3)2', 'NO', 'H2O']],
+  ['permanganat', 'Permanganat i àcid clorhídric', ['KMnO4', 'HCl'], ['KCl', 'MnCl2', 'Cl2', 'H2O']],
+].map(([id, nom, r, p]) => Object.freeze({id, nom, r, p, esp: Object.freeze([...r, ...p]), nr: r.length})));
+const FIXOS = Dd.problemesFixos(PROBLEMES);
+const {perId} = FIXOS;
+const LLETRES = 'abcdefgh';
+
+/* Fraccions [n, d]. */
+const mcd = (a, b) => (b ? mcd(b, a % b) : a);
+const mcm = (a, b) => a / mcd(a, b) * b;
+const fr = (n, d = 1) => { const g = mcd(Math.abs(n), Math.abs(d)) || 1, s = d < 0 ? -1 : 1; return [s * n / g, s * d / g]; };
+const suma = (x, y) => fr(x[0] * y[1] + y[0] * x[1], x[1] * y[1]);
+const prod = (x, y) => fr(x[0] * y[0], x[1] * y[1]);
+const quoc = (x, y) => fr(x[0] * y[1], x[1] * y[0]);
+const texFr = ([n, d]) => (d === 1 ? String(n) : `\\frac{${n}}{${d}}`);
+const texF = f => `\\mathrm{${f.replace(/(\d+)/g, '_{$1}')}}`;
+
+/** Sistema: una equació per element, Σ signe·àtoms·incògnita = 0. */
+function sistema(p) {
+  const els = [...new Set(p.esp.flatMap(f => Object.keys(atoms(f))))];
+  const eqs = els.map(e => ({el: e, c: p.esp.map((f, i) => (i < p.nr ? 1 : -1) * (atoms(f)[e] || 0))}));
+  return {els, eqs};
+}
+
+/** Resol amb la incògnita `lliure` = 1. Retorna {passos: [{eq, v: {i: valor}}], fallback: {i: valor}|null, valors}. */
+function resol(p) {
+  const {eqs} = sistema(p), n = p.esp.length;
+  const mida = i => Object.values(atoms(p.esp[i])).reduce((s, x) => s + x, 0);
+  const candidats = [...Array(n).keys()].sort((a, b) => mida(b) - mida(a) || b - a);
+  const lliure = candidats[0];
+  const val = {[lliure]: fr(1)}, passos = [], usades = new Set();
+  for (let canvi = true; canvi;) {
+    canvi = false;
+    eqs.forEach((q, k) => {
+      if (usades.has(k)) return;
+      const pend = q.c.map((c, i) => (c && !(i in val) ? i : -1)).filter(i => i >= 0);
+      if (pend.length !== 1) return;
+      const i = pend[0];
+      let s = fr(0);
+      q.c.forEach((c, j) => { if (j !== i && c) s = suma(s, prod(fr(c), val[j])); });
+      val[i] = quoc(fr(-s[0], s[1]), fr(q.c[i]));
+      usades.add(k); passos.push({k, i}); canvi = true;
+    });
+  }
+  let fallback = null;
+  if (Object.keys(val).length < n) {
+    // Gauss-Jordan sobre les incògnites que falten (les conegudes passen al segon membre).
+    const inc = [...Array(n).keys()].filter(i => !(i in val));
+    const M = eqs.map(q => {
+      let b = fr(0);
+      q.c.forEach((c, j) => { if (j in val && c) b = suma(b, prod(fr(-c), val[j])); });
+      return [...inc.map(i => fr(q.c[i])), b];
+    });
+    let f = 0;
+    for (let c = 0; c < inc.length; c++) {
+      const pv = M.findIndex((r, i) => i >= f && r[c][0] !== 0);
+      if (pv < 0) continue;
+      [M[f], M[pv]] = [M[pv], M[f]];
+      M[f] = M[f].map(x => quoc(x, M[f][c]));
+      M.forEach((r, i) => { if (i !== f && r[c][0]) { const m = r[c]; M[i] = r.map((x, j) => suma(x, prod(fr(-m[0], m[1]), M[f][j]))); } });
+      f++;
+    }
+    fallback = {};
+    inc.forEach((i, c) => { fallback[i] = M[c][inc.length]; val[i] = M[c][inc.length]; });
+  }
+  const L = Object.values(val).reduce((l, x) => mcm(l, x[1]), 1);
+  return {lliure, passos, fallback, valors: [...Array(n).keys()].map(i => val[i]), L, fins: [...Array(n).keys()].map(i => val[i][0] * L / val[i][1])};
+}
+
+function passos(v) {
+  const p = perId(v.p), s = resol(p), {eqs} = sistema(p), n = p.esp.length, g = F.guio(7);
+  const lletra = i => LLETRES[i];
+  const coef = Array(n).fill(null);                // null = lletra; si no, nombre (TeX)
+  const m = {};
+  const fila0 = () => p.esp.map((f, i) => {
+    const sep = i === 0 ? '' : i === p.nr ? R('ar', '\\rightarrow') : O(`o${i}`, '+');
+    const c = coef[i] === null ? lletra(i) : (coef[i] === '1' ? '' : coef[i] + '\\,');
+    return sep + K(`t${i}`, (coef[i] === null ? `${c}\\,` : c) + texF(f), m[`t${i}`] || '');
+  }).join('');
+  const sol = {};                                   // incògnita → TeX del valor
+  const filaSol = () => Object.keys(sol).map(Number).sort((a, b) => a - b)
+    .map(i => K(`v${lletra(i)}`, `${lletra(i)} = ${sol[i]}`, m[`v${lletra(i)}`] || '')).join('\\quad ');
+  const pas = (text, opcions) => {
+    g.files[0] = fila0(); if (Object.keys(sol).length) g.files[6] = filaSol();
+    g.afegeix(text, opcions); for (const k of Object.keys(m)) delete m[k];
+  };
+  const tex = x => `$${x}$`;
+
+  pas('Escrivim el coeficient de cada substància com una incògnita: $' + [...Array(n).keys()].map(lletra).join(', ') + '$.');
+
+  eqs.forEach((q, k) => {
+    const cost = signe => q.c.map((c, i) => [c * signe, i]).filter(([c]) => c > 0)
+      .map(([c, i]) => (c === 1 ? '' : c) + lletra(i)).join(' + ');
+    const e = `${cost(1)} = ${cost(-1)}`;
+    g.files[1 + k] = `\\mathrm{${q.el}}:\\quad ${e}`;
+    pas(`Àtoms de $\\mathrm{${q.el}}$: els de l'esquerra han de ser tants com els de la dreta, $${e}$.`);
+  });
+
+  sol[s.lliure] = '1'; m[`v${lletra(s.lliure)}`] = 'mes';
+  pas(`Tenim ${tex(n)} incògnites i només ${tex(eqs.length)} equacions: el sistema té infinites solucions, totes proporcionals. Fixem ${tex(`${lletra(s.lliure)} = 1`)} i ja podem aïllar la resta.`);
+
+  for (const {k, i} of s.passos) {
+    sol[i] = texFr(s.valors[i]); m[`v${lletra(i)}`] = 'mes';
+    pas(`Amb l'equació de $\\mathrm{${eqs[k].el}}$ només queda una incògnita per esbrinar: ${tex(`${lletra(i)} = ${texFr(s.valors[i])}`)}.`);
+  }
+  if (s.fallback) {
+    for (const i of Object.keys(s.fallback)) { sol[i] = texFr(s.valors[i]); m[`v${lletra(+i)}`] = 'mes'; }
+    pas(`Les equacions que queden tenen dues o més incògnites alhora: les resolem per substitució i reducció. Resulta ${tex(Object.keys(s.fallback).map(i => `${lletra(+i)} = ${texFr(s.valors[i])}`).join(',\\; '))}.`);
+  }
+
+  if (s.L !== 1) {
+    n && Object.keys(sol).forEach(i => { sol[i] = String(s.fins[i]); m[`v${lletra(+i)}`] = 'tria'; });
+    pas(`Hi ha fraccions: multipliquem totes les incògnites pel mínim comú múltiple dels denominadors, ${tex(s.L)}, perquè els coeficients siguin enters.`);
+  }
+
+  s.fins.forEach((x, i) => { coef[i] = String(x); });
+  g.classes[0] = 'final';
+  pas('Substituïm cada incògnita pel seu valor. Equació ajustada.');
+  return g.passos;
+}
+
+const texEq = p => `${p.r.map(texF).join(' + ')} \\rightarrow ${p.p.map(texF).join(' + ')}`;
+
+arrel.AjustAlgebraic = Object.freeze({
+  titol: 'El mètode algebraic',
+  categoria: 'quimica', cami: false, torna: false,
+  files: 7,
+  perDefecte: FIXOS.perDefecte, exemples: FIXOS.exemples,
+  titolEditor: 'Tria una reacció', titolExemples: 'Reaccions:',
+  notaEditor: 'Una incògnita per coeficient, una equació per element; es fixa una incògnita igual a 1, se solucionen les altres i s\'eliminen les fraccions.',
+  editor: [],
+  problemes: PROBLEMES, resol, atoms,
+  valida: FIXOS.valida, llegeixAdreca: FIXOS.llegeixAdreca, escriuAdreca: FIXOS.escriuAdreca,
+  enunciat: v => `Ajusta, pel mètode algebraic, la reacció $${texEq(perId(v.p))}$.`,
+  resum: v => texEq(perId(v.p)), nomExemple: FIXOS.nomExemple,
+  passos,
+});
+})(globalThis);
+
+</script>
 <style>
 .menu-fases{max-width:760px;margin:0 auto;padding:0 16px 40px}
 .menu-fases h1{margin:0;font-size:1.05rem;font-weight:700}
@@ -3118,7 +3293,7 @@ button.fase{cursor:pointer}button.fase:hover,button.fase:focus-visible{backgroun
   <p class="lead">Tres maneres d'ajustar una reacció, segons el tipus de reacció.</p>
   <button class="fase" id="fase1"><span class="n">1</span><span><b>Reaccions redox: el mètode de l'ió-electró</b><small>Semireaccions, electrons, medi àcid i bàsic</small></span></button>
   <button class="fase" id="fase2"><span class="n">2</span><span><b>Química orgànica: l'ajust seqüencial (C ➔ H ➔ O)</b><small>Primer el carboni, després l'hidrogen i finalment l'oxigen</small></span></button>
-  <div class="fase espera" aria-disabled="true"><span class="n">3</span><span><b>El mètode de salvació: el mètode algebraic</b><small>Un sistema d'equacions amb els coeficients</small></span><span class="etiq">en construcció</span></div>
+  <button class="fase" id="fase3"><span class="n">3</span><span><b>El mètode de salvació: el mètode algebraic</b><small>Un sistema d'equacions amb els coeficients</small></span></button>
 </div>
 <script>
 (function () {
@@ -3131,12 +3306,13 @@ button.fase{cursor:pointer}button.fase:hover,button.fase:focus-visible{backgroun
     if (cap) cap.append(Object.assign(document.createElement('a'), {className: 'torna', href: location.pathname, textContent: '← Menú'}));
   };
   const p = new URLSearchParams(location.search).get('p');
-  if (p && AjustSequencial.problemes.some(x => x.id === p)) engega(AjustSequencial);
-  else if (p) engega(IonElectro);
+  const fase = [IonElectro, AjustSequencial, AjustAlgebraic].find(m => m.problemes.some(x => x.id === p));
+  if (fase) engega(fase);
   else {
     pr.hidden = true; menu.hidden = false;
     document.getElementById('fase1').addEventListener('click', () => engega(IonElectro));
     document.getElementById('fase2').addEventListener('click', () => engega(AjustSequencial));
+    document.getElementById('fase3').addEventListener('click', () => engega(AjustAlgebraic));
   }
 })();
 </script>
